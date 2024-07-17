@@ -209,7 +209,7 @@ func (s *Builder) CreateEndpoints(ctx context.Context) error {
 	if err != nil {
 		return s.Wool.Wrapf(err, "cannot load tcp api")
 	}
-	endpoint := s.Base.Service.BaseEndpoint(standards.TCP)
+	endpoint := s.Base.BaseEndpoint(standards.TCP)
 	s.TcpEndpoint, err = resources.NewAPI(ctx, endpoint, resources.ToTCPAPI(tcp))
 	s.Endpoints = []*v0.Endpoint{s.TcpEndpoint}
 	return nil

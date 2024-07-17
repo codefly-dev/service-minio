@@ -123,7 +123,7 @@ func (s *Runtime) Init(ctx context.Context, req *runtimev0.InitRequest) (*runtim
 		w.Debug("adding configuration", wool.Field("config", resources.MakeConfigurationSummary(conf)), wool.Field("instance", inst))
 		s.Runtime.RuntimeConfigurations = append(s.Runtime.RuntimeConfigurations, conf)
 	}
-	s.Wool.Focus("sending runtime configuration", wool.Field("conf", resources.MakeManyConfigurationSummary(s.Runtime.RuntimeConfigurations)))
+	s.Wool.Debug("sending runtime configuration", wool.Field("conf", resources.MakeManyConfigurationSummary(s.Runtime.RuntimeConfigurations)))
 
 	w.Debug("setting up connection string for migrations")
 
@@ -166,7 +166,7 @@ func (s *Runtime) WaitForReady(ctx context.Context) error {
 	defer s.Wool.Catch()
 	ctx = s.Wool.Inject(ctx)
 
-	s.Wool.Focus("waiting for ready")
+	s.Wool.Debug("waiting for ready")
 
 	minioClient, err := minio.New(s.hostReady, &minio.Options{
 		Creds: credentials.NewStaticV4(s.accessKey, s.secretKey, ""),

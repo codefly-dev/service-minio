@@ -96,7 +96,7 @@ func (s *Service) CreateCredentialsConfiguration(ctx context.Context, conf *base
 	defer s.Wool.Catch()
 	ctx = s.Wool.Inject(ctx)
 	outputConf := &basev0.Configuration{
-		Origin:         s.Base.Service.Unique(),
+		Origin:         s.Base.Unique(),
 		RuntimeContext: resources.RuntimeContextFromInstance(instance),
 		Infos: []*basev0.ConfigurationInformation{
 			{Name: "minio",
