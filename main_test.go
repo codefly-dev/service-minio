@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/codefly-dev/core/agents"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
@@ -23,7 +22,6 @@ import (
 
 func TestCreateToRun(t *testing.T) {
 	wool.SetGlobalLogLevel(wool.DEBUG)
-	agents.LogToConsole()
 	ctx := context.Background()
 
 	workspace := &resources.Workspace{Name: "test"}

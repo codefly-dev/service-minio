@@ -10,21 +10,22 @@ import (
 
 	"github.com/codefly-dev/core/agents/helpers/code"
 
+	"github.com/codefly-dev/core/agents/services"
 	"github.com/codefly-dev/core/wool"
 
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
 	"github.com/codefly-dev/core/resources"
-	runners "github.com/codefly-dev/core/runners/base"
+	dockerrun "github.com/codefly-dev/core/runners/dockerrun"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	_ "github.com/lib/pq"
 )
 
 type Runtime struct {
+	services.RuntimeServer
 	*Service
 
 	// internal
-	runnerEnvironment *runners.DockerEnvironment
+	runnerEnvironment *dockerrun.DockerEnvironment
 
 	minioPort uint16
 
@@ -135,7 +136,7 @@ func (s *Runtime) Init(ctx context.Context, req *runtimev0.InitRequest) (*runtim
 	s.hostReady = hostInstance.Host
 
 	// Docker
-	runner, err := runners.NewDockerHeadlessEnvironment(ctx, image, s.UniqueWithWorkspace())
+	runner, err := dockerrun.NewDockerHeadlessEnvironment(ctx, image, s.UniqueWithWorkspace())
 	if err != nil {
 		return s.Runtime.InitError(err)
 	}
@@ -217,10 +218,6 @@ func (s *Runtime) Stop(ctx context.Context, req *runtimev0.StopRequest) (*runtim
 
 	s.Wool.Debug("nothing to stop: keep environment alive")
 
-	err := s.Base.Stop()
-	if err != nil {
-		return s.Runtime.StopError(err)
-	}
 	return s.Runtime.StopResponse()
 }
 
@@ -231,7 +228,7 @@ func (s *Runtime) Destroy(ctx context.Context, req *runtimev0.DestroyRequest) (*
 	s.Wool.Debug("Destroying")
 
 	// Get the runner environment
-	runner, err := runners.NewDockerHeadlessEnvironment(ctx, image, s.UniqueWithWorkspace())
+	runner, err := dockerrun.NewDockerHeadlessEnvironment(ctx, image, s.UniqueWithWorkspace())
 	if err != nil {
 		return s.Runtime.DestroyError(err)
 	}
@@ -245,10 +242,6 @@ func (s *Runtime) Destroy(ctx context.Context, req *runtimev0.DestroyRequest) (*
 
 func (s *Runtime) Test(ctx context.Context, req *runtimev0.TestRequest) (*runtimev0.TestResponse, error) {
 	return s.Runtime.TestResponse()
-}
-
-func (s *Runtime) Communicate(ctx context.Context, req *agentv0.Engage) (*agentv0.InformationRequest, error) {
-	return s.Base.Communicate(ctx, req)
 }
 
 /* Details

@@ -9,6 +9,7 @@ import (
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	"github.com/codefly-dev/core/resources"
+	runnersbase "github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
 	"google.golang.org/grpc/codes"
@@ -26,7 +27,11 @@ type Settings struct {
 const HotReload = "hot-reload"
 const DatabaseName = "database-name"
 
-var image = &resources.DockerImage{Name: "minio/minio", Tag: "latest"}
+var image = &resources.DockerImage{
+	Name:   "minio/minio",
+	Tag:    "RELEASE.2025-09-07T16-13-09Z",
+	Digest: "sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e",
+}
 
 type Service struct {
 	*services.Base
@@ -47,14 +52,11 @@ func (s *Service) GetAgentInformation(ctx context.Context, _ *agentv0.AgentInfor
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	return &agentv0.AgentInformation{
-		RuntimeRequirements: []*agentv0.Runtime{},
-		Capabilities: []*agentv0.Capability{
-			{Type: agentv0.Capability_BUILDER},
-			{Type: agentv0.Capability_RUNTIME},
+	return services.Advertisement{
+		Backends: runnersbase.BackendSupport{
+			Docker: true,
 		},
-		Protocols: []*agentv0.Protocol{},
-		ConfigurationDetails: []*agentv0.ConfigurationValueDetail{
+		Config: []*agentv0.ConfigurationValueDetail{
 			{
 				Name: "minio", Description: "minio credentials",
 				Fields: []*agentv0.ConfigurationValueInformation{
@@ -67,7 +69,7 @@ func (s *Service) GetAgentInformation(ctx context.Context, _ *agentv0.AgentInfor
 			},
 		},
 		ReadMe: readme,
-	}, nil
+	}.Build(), nil
 }
 
 func NewService() *Service {
@@ -112,7 +114,11 @@ func (s *Service) CreateCredentialsConfiguration(ctx context.Context, conf *base
 }
 
 func main() {
-	agents.Register(services.NewServiceAgent(agent.Of(resources.ServiceAgent), NewService()), services.NewBuilderAgent(agent.Of(resources.RuntimeServiceAgent), NewBuilder()), services.NewRuntimeAgent(agent.Of(resources.BuilderServiceAgent), NewRuntime()))
+	agents.Serve(agents.PluginRegistration{
+		Agent:   NewService(),
+		Runtime: NewRuntime(),
+		Builder: NewBuilder(),
+	})
 }
 
 //go:embed agent.codefly.yaml

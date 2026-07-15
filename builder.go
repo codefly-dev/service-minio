@@ -18,6 +18,7 @@ import (
 )
 
 type Builder struct {
+	services.BuilderServer
 	*Service
 }
 
@@ -50,13 +51,6 @@ func (s *Builder) Load(ctx context.Context, req *builderv0.LoadRequest) (*builde
 		s.Builder.GettingStarted, err = templates.ApplyTemplateFrom(ctx, shared.Embed(factoryFS), "templates/factory/GETTING_STARTED.md", s.Information)
 		if err != nil {
 			return nil, err
-		}
-		if req.CreationMode.Communicate {
-			// communication on CreateResponse
-			err = s.Communication.Register(ctx, communicate.New[builderv0.CreateRequest](s.createCommunicate()))
-			if err != nil {
-				return s.Builder.LoadError(err)
-			}
 		}
 		return s.Builder.LoadResponse()
 	}
@@ -136,7 +130,11 @@ func (s *Builder) Deploy(ctx context.Context, req *builderv0.DeploymentRequest) 
 
 	s.Configuration = conf
 
-	cm, err := services.EnvsAsConfigMapData(s.EnvironmentVariables.Configurations()...)
+	configs, err := s.EnvironmentVariables.Configurations()
+	if err != nil {
+		return s.Builder.DeployError(err)
+	}
+	cm, err := services.EnvsAsConfigMapData(configs...)
 	if err != nil {
 		return s.Builder.DeployError(err)
 	}
@@ -168,8 +166,10 @@ func (s *Builder) Options() []*agentv0.Question {
 	return []*agentv0.Question{}
 }
 
-func (s *Builder) createCommunicate() *communicate.Sequence {
-	return communicate.NewSequence(s.Options()...)
+func (s *Builder) Communicate(stream builderv0.Builder_CommunicateServer) error {
+	asker := communicate.NewQuestionAsker(stream)
+	_, err := asker.RunSequence(s.Options())
+	return err
 }
 
 type create struct {
@@ -178,15 +178,6 @@ type create struct {
 func (s *Builder) Create(ctx context.Context, req *builderv0.CreateRequest) (*builderv0.CreateResponse, error) {
 	defer s.Wool.Catch()
 
-	if s.Builder.CreationMode.Communicate {
-		s.Wool.Debug("using communicate mode")
-		_, err := s.Communication.Done(ctx, communicate.Channel[builderv0.CreateRequest]())
-
-		if err != nil {
-			return s.Builder.CreateError(err)
-		}
-
-	}
 	c := create{}
 
 	err := s.Templates(ctx, c, services.WithFactory(factoryFS))
