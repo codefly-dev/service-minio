@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+
 	v0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/standards"
@@ -13,8 +14,6 @@ import (
 
 	"github.com/codefly-dev/core/agents/services"
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
-	"github.com/codefly-dev/core/shared"
-	"github.com/codefly-dev/core/templates"
 )
 
 type Builder struct {
@@ -31,43 +30,20 @@ func NewBuilder() *Builder {
 func (s *Builder) Load(ctx context.Context, req *builderv0.LoadRequest) (*builderv0.LoadResponse, error) {
 	defer s.Wool.Catch()
 
-	ctx = s.Wool.Inject(ctx)
-
-	err := s.Base.Load(ctx, req.Identity, s.Settings)
-	if err != nil {
-		return nil, err
-	}
-
-	s.Wool.Debug("base loaded", wool.Field("identity", s.Identity))
-
-	if req.DisableCatch {
-		s.Wool.DisableCatch()
-	}
-
-	requirements.Localize(s.Location)
-
-	if req.CreationMode != nil {
-		s.Builder.CreationMode = req.CreationMode
-		s.Builder.GettingStarted, err = templates.ApplyTemplateFrom(ctx, shared.Embed(factoryFS), "templates/factory/GETTING_STARTED.md", s.Information)
-		if err != nil {
-			return nil, err
-		}
-		return s.Builder.LoadResponse()
-	}
-
-	s.Endpoints, err = s.Builder.Service.LoadEndpoints(ctx)
-	if err != nil {
-		return s.Builder.LoadError(err)
-	}
-
-	s.TcpEndpoint, err = resources.FindTCPEndpoint(ctx, s.Endpoints)
-	if err != nil {
-		return s.Builder.LoadError(err)
-	}
-
-	s.Wool.Debug("endpoint", wool.Field("tcp", s.TcpEndpoint))
-
-	return s.Builder.LoadResponse()
+	return s.Builder.LoadService(ctx, req, services.BuilderLoad{
+		Settings:         s.Settings,
+		Requirements:     requirements,
+		FactoryTemplates: factoryFS,
+		ResolveEndpoints: func(ctx context.Context, endpoints []*v0.Endpoint) error {
+			endpoint, err := resources.FindTCPEndpoint(ctx, endpoints)
+			if err != nil {
+				return err
+			}
+			s.TcpEndpoint = endpoint
+			s.Wool.Debug("endpoint", wool.Field("tcp", endpoint))
+			return nil
+		},
+	})
 }
 
 func (s *Builder) Init(ctx context.Context, req *builderv0.InitRequest) (*builderv0.InitResponse, error) {
@@ -97,69 +73,34 @@ func (s *Builder) Build(ctx context.Context, req *builderv0.BuildRequest) (*buil
 
 func (s *Builder) Deploy(ctx context.Context, req *builderv0.DeploymentRequest) (*builderv0.DeploymentResponse, error) {
 	defer s.Wool.Catch()
-
-	s.Builder.LogDeployRequest(req, s.Wool.Debug)
-
-	err := s.LoadConfiguration(ctx, req.Configuration)
-	if err != nil {
-		return s.Builder.DeployError(err)
-	}
-
 	s.Base.SetDockerImage(image)
 
-	s.NetworkMappings = req.NetworkMappings
-
-	k, err := s.Builder.KubernetesDeploymentRequest(ctx, req)
-	if err != nil {
-		return s.Builder.DeployError(err)
-	}
-
-	instance, err := resources.FindNetworkInstanceInNetworkMappings(ctx, s.NetworkMappings, s.TcpEndpoint, resources.NewContainerNetworkAccess())
-	if err != nil {
-		return s.Builder.DeployError(err)
-	}
-	conf, err := s.CreateCredentialsConfiguration(ctx, s.Configuration, instance)
-	if err != nil {
-		return s.Builder.DeployError(err)
-	}
-
-	err = s.EnvironmentVariables.AddConfigurations(ctx, conf)
-	if err != nil {
-		return s.Builder.DeployError(err)
-	}
-
-	s.Configuration = conf
-
-	configs, err := s.EnvironmentVariables.Configurations()
-	if err != nil {
-		return s.Builder.DeployError(err)
-	}
-	cm, err := services.EnvsAsConfigMapData(configs...)
-	if err != nil {
-		return s.Builder.DeployError(err)
-	}
-	accessKey := resources.Env("MINIO_ACCESS_KEY", s.accessKey)
-	secretKey := resources.Env("MINIO_SECRET_KEY", s.secretKey)
-
-	secretEnvs := s.EnvironmentVariables.Secrets()
-	secretEnvs = append(secretEnvs, accessKey, secretKey)
-
-	secrets, err := services.EnvsAsSecretData(secretEnvs...)
-	if err != nil {
-		return s.Builder.DeployError(err)
-	}
-
-	params := services.DeploymentParameters{
-		ConfigMap: cm,
-		SecretMap: secrets,
-	}
-
-	err = s.Builder.KustomizeDeploy(ctx, req.Environment, k, deploymentFS, params)
-	if err != nil {
-		return s.Builder.DeployError(err)
-	}
-
-	return s.Builder.DeployResponse()
+	return s.Builder.DeployKustomize(ctx, req, services.KustomizeDeployment{
+		EnvironmentVariables: s.EnvironmentVariables,
+		Templates:            deploymentFS,
+		Prepare: func(ctx context.Context, deployment *services.KustomizeDeploymentContext) error {
+			if err := s.LoadConfiguration(ctx, req.GetConfiguration()); err != nil {
+				return err
+			}
+			s.NetworkMappings = req.GetNetworkMappings()
+			instance, err := resources.FindNetworkInstanceInNetworkMappings(ctx, s.NetworkMappings, s.TcpEndpoint, resources.NewContainerNetworkAccess())
+			if err != nil {
+				return err
+			}
+			configuration, err := s.CreateCredentialsConfiguration(ctx, s.Configuration, instance)
+			if err != nil {
+				return err
+			}
+			if err = deployment.ExportConfiguration(ctx, configuration); err != nil {
+				return err
+			}
+			deployment.AddSecrets(
+				resources.Env("MINIO_ACCESS_KEY", s.accessKey),
+				resources.Env("MINIO_SECRET_KEY", s.secretKey),
+			)
+			return nil
+		},
+	})
 }
 
 func (s *Builder) Options() []*agentv0.Question {

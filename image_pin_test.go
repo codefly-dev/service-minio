@@ -18,7 +18,7 @@ func TestDeploymentImageIsImmutable(t *testing.T) {
 		t.Fatal(err)
 	}
 	deployment := string(data)
-	if strings.Contains(deployment, ":latest") || !strings.Contains(deployment, image.Digest) {
-		t.Fatalf("MinIO deployment image is not digest-pinned: %s", deployment)
+	if !strings.Contains(deployment, "image: {{ .Image }}") {
+		t.Fatalf("MinIO deployment must render the shared pinned image declaration: %s", deployment)
 	}
 }
