@@ -3,7 +3,7 @@ module github.com/codefly-dev/service-minio
 go 1.25.0
 
 require (
-	github.com/codefly-dev/core v0.2.20
+	github.com/codefly-dev/core v0.2.21
 	github.com/golang-migrate/migrate/v4 v4.17.1
 	github.com/lib/pq v1.10.9
 	github.com/minio/minio-go/v7 v7.0.74
