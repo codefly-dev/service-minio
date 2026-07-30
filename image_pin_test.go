@@ -13,7 +13,7 @@ func TestRuntimeImageIsImmutable(t *testing.T) {
 }
 
 func TestDeploymentImageIsImmutable(t *testing.T) {
-	data, err := os.ReadFile("templates/deployment/kustomize/base/stateful-set.yaml.tmpl")
+	data, err := os.ReadFile("templates/deployment/kustomize/base/deployment.yaml.tmpl")
 	if err != nil {
 		t.Fatal(err)
 	}

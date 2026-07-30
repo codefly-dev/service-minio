@@ -1,11 +1,14 @@
 apiVersion: apps/v1
-kind: StatefulSet
+kind: Deployment
 metadata:
   name: "{{ .Service.Name.DNSCase }}"
   namespace: "{{ .Namespace }}"
 spec:
-  serviceName: "{{ .Service.Name.DNSCase }}"
   replicas: 1
+  # The data volume is ReadWriteOnce, so a rolling update would deadlock on the
+  # new pod waiting for a mount the terminating pod still holds.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: "{{ .Service.Name.DNSCase }}"
@@ -97,13 +100,8 @@ spec:
             - name: tmp
               mountPath: /tmp
       volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: "{{ .Service.Name.DNSCase }}-minio-pvc"
         - name: tmp
           emptyDir: {}
-  volumeClaimTemplates:
-    - metadata:
-        name: data
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 10Gi

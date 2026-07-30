@@ -4,7 +4,6 @@ metadata:
   name: "{{ .Service.Name.DNSCase }}"
   namespace: "{{ .Namespace }}"
 spec:
-  clusterIP: None
   selector:
     app: "{{ .Service.Name.DNSCase }}"
   ports:

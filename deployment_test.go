@@ -22,6 +22,25 @@ func TestDeploymentTemplates(t *testing.T) {
 	if !strings.Contains(secret, "kind: Secret") || !strings.Contains(secret, "c2VjcmV0") {
 		t.Fatalf("ephemeral profile did not render a populated Secret:\n%s", secret)
 	}
+
+	// The workload keeps its stable, named PersistentVolumeClaim so an in-place
+	// upgrade reattaches the existing volume instead of provisioning an empty
+	// one under a new identity.
+	pvc := readDeploymentFile(t, destination, "base", "pvc.yaml")
+	if !strings.Contains(pvc, "kind: PersistentVolumeClaim") || !strings.Contains(pvc, "-minio-pvc") {
+		t.Fatalf("expected a stably named PersistentVolumeClaim:\n%s", pvc)
+	}
+	deployment := readDeploymentFile(t, destination, "base", "deployment.yaml")
+	if !strings.Contains(deployment, "claimName: ") || !strings.Contains(deployment, "-minio-pvc") {
+		t.Fatalf("deployment must mount the named PVC:\n%s", deployment)
+	}
+
+	// The Service stays a routable ClusterIP; a headless service would change
+	// how consumers resolve the endpoint.
+	service := readDeploymentFile(t, destination, "base", "service.yaml")
+	if strings.Contains(service, "clusterIP: None") {
+		t.Fatalf("service must remain a routable ClusterIP, not headless:\n%s", service)
+	}
 }
 
 func TestRestrictedPortableDeploymentReferencesExternalSecretsAndReturnsValueFreeConnection(t *testing.T) {
@@ -76,7 +95,7 @@ func TestRestrictedPortableDeploymentReferencesExternalSecretsAndReturnsValueFre
 		}
 	}
 
-	statefulSet := readDeploymentFile(t, destination, "base", "stateful-set.yaml")
+	deployment := readDeploymentFile(t, destination, "base", "deployment.yaml")
 	for _, expected := range []string{
 		"automountServiceAccountToken: false",
 		"image: " + image.FullName(),
@@ -86,8 +105,8 @@ func TestRestrictedPortableDeploymentReferencesExternalSecretsAndReturnsValueFre
 		"key: access-key",
 		"key: secret-key",
 	} {
-		if !strings.Contains(statefulSet, expected) {
-			t.Errorf("restricted StatefulSet missing %q:\n%s", expected, statefulSet)
+		if !strings.Contains(deployment, expected) {
+			t.Errorf("restricted Deployment missing %q:\n%s", expected, deployment)
 		}
 	}
 	for _, unexpected := range []string{
@@ -97,8 +116,8 @@ func TestRestrictedPortableDeploymentReferencesExternalSecretsAndReturnsValueFre
 		"UNRELATED_SECRET",
 		"unrelated-credentials",
 	} {
-		if strings.Contains(statefulSet, unexpected) {
-			t.Errorf("restricted StatefulSet contains %q:\n%s", unexpected, statefulSet)
+		if strings.Contains(deployment, unexpected) {
+			t.Errorf("restricted Deployment contains %q:\n%s", unexpected, deployment)
 		}
 	}
 
