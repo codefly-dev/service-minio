@@ -68,9 +68,9 @@ func (s *Runtime) Init(ctx context.Context, req *runtimev0.InitRequest) (*runtim
 
 	s.NetworkMappings = req.ProposedNetworkMappings
 
-	s.Configuration = req.Configuration
+	configuration := req.GetConfiguration()
 
-	err := s.LoadConfiguration(ctx, s.Configuration)
+	err := s.LoadConfiguration(ctx, configuration)
 	if err != nil {
 		return s.Runtime.InitError(err)
 	}
@@ -100,7 +100,7 @@ func (s *Runtime) Init(ctx context.Context, req *runtimev0.InitRequest) (*runtim
 
 	// Create configuration
 	for _, inst := range net.Instances {
-		conf, errConn := s.CreateCredentialsConfiguration(ctx, s.Configuration, inst)
+		conf, errConn := s.CreateCredentialsConfiguration(ctx, configuration, inst)
 		if errConn != nil {
 			return s.Runtime.InitError(errConn)
 		}
