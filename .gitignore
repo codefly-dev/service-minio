@@ -4,3 +4,6 @@ go.work*
 dist
 
 dist/
+
+# compiled plugin binary
+/service-minio

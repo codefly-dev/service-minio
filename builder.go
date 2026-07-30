@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"fmt"
 
 	v0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/resources"
@@ -19,6 +20,14 @@ import (
 type Builder struct {
 	services.BuilderServer
 	*Service
+}
+
+// deploymentTemplateParameters carries the plugin-specific values a restricted
+// render needs: identifier-only references to the externally managed Secret
+// keys that hold MinIO's root credentials. It never carries secret values.
+type deploymentTemplateParameters struct {
+	AccessKeyReference *builderv0.KubernetesSecretKeyReference
+	SecretKeyReference *builderv0.KubernetesSecretKeyReference
 }
 
 func NewBuilder() *Builder {
@@ -87,32 +96,70 @@ func (s *Builder) Deploy(ctx context.Context, req *builderv0.DeploymentRequest) 
 	defer s.Wool.Catch()
 	s.Base.SetDockerImage(image)
 
-	return s.Builder.DeployKustomize(ctx, req, services.KustomizeDeployment{
+	parameters := &deploymentTemplateParameters{}
+	var restrictedConfiguration *v0.Configuration
+	response, err := s.Builder.DeployKustomize(ctx, req, services.KustomizeDeployment{
 		EnvironmentVariables: s.EnvironmentVariables,
 		Templates:            deploymentFS,
+		Parameters:           parameters,
 		Prepare: func(ctx context.Context, deployment *services.KustomizeDeploymentContext) error {
-			if err := s.LoadConfiguration(ctx, req.GetConfiguration()); err != nil {
-				return err
+			configuration, prepareErr := s.prepareDeployment(ctx, deployment, parameters)
+			if prepareErr != nil {
+				return prepareErr
 			}
-			s.NetworkMappings = req.GetNetworkMappings()
-			instance, err := resources.FindNetworkInstanceInNetworkMappings(ctx, s.NetworkMappings, s.TcpEndpoint, resources.NewContainerNetworkAccess())
-			if err != nil {
-				return err
+			// A restricted render must not receive secret values, so the
+			// connection configuration is returned as a value-free reference
+			// on the response instead of being exported into the manifests.
+			if services.IsRestrictedOutputProfile(deployment.Profile) {
+				restrictedConfiguration = configuration
+				return nil
 			}
-			configuration, err := s.CreateCredentialsConfiguration(ctx, s.Configuration, instance)
-			if err != nil {
-				return err
-			}
-			if err = deployment.ExportConfiguration(ctx, configuration); err != nil {
-				return err
-			}
-			deployment.AddSecrets(
-				resources.Env("MINIO_ACCESS_KEY", s.accessKey),
-				resources.Env("MINIO_SECRET_KEY", s.secretKey),
-			)
-			return nil
+			return deployment.ExportConfiguration(ctx, configuration)
 		},
 	})
+	if err != nil ||
+		response.GetState().GetState() != builderv0.DeploymentStatus_SUCCESS ||
+		restrictedConfiguration == nil {
+		return response, err
+	}
+	response.Configuration = restrictedConfiguration
+	return response, nil
+}
+
+func (s *Builder) prepareDeployment(
+	ctx context.Context,
+	deployment *services.KustomizeDeploymentContext,
+	parameters *deploymentTemplateParameters,
+) (*v0.Configuration, error) {
+	req := deployment.Request
+	instance, err := resources.FindNetworkInstanceInNetworkMappings(ctx, req.GetNetworkMappings(), s.TcpEndpoint, resources.NewContainerNetworkAccess())
+	if err != nil {
+		return nil, err
+	}
+	if services.IsRestrictedOutputProfile(deployment.Profile) {
+		accessKeyEnv := resources.ServiceSecretConfigurationKeyFromUnique(s.Unique(), "minio", "MINIO_ACCESS_KEY")
+		secretKeyEnv := resources.ServiceSecretConfigurationKeyFromUnique(s.Unique(), "minio", "MINIO_SECRET_KEY")
+		references := deployment.Kubernetes.GetSecretReferences()
+		accessKeyReference := references[accessKeyEnv]
+		secretKeyReference := references[secretKeyEnv]
+		if accessKeyReference == nil || secretKeyReference == nil {
+			return nil, fmt.Errorf("minio requires typed Kubernetes Secret references for %s and %s", accessKeyEnv, secretKeyEnv)
+		}
+		if accessKeyReference.GetOptional() || secretKeyReference.GetOptional() {
+			return nil, fmt.Errorf("minio Secret references must not be optional")
+		}
+		parameters.AccessKeyReference = accessKeyReference
+		parameters.SecretKeyReference = secretKeyReference
+		return s.restrictedCredentialsConfiguration(instance), nil
+	}
+	if err = s.LoadConfiguration(ctx, req.GetConfiguration()); err != nil {
+		return nil, err
+	}
+	deployment.AddSecrets(
+		resources.Env("MINIO_ACCESS_KEY", s.accessKey),
+		resources.Env("MINIO_SECRET_KEY", s.secretKey),
+	)
+	return s.CreateCredentialsConfiguration(ctx, req.GetConfiguration(), instance)
 }
 
 func (s *Builder) Options() []*agentv0.Question {

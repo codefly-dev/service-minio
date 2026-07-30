@@ -1,0 +1,109 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: "{{ .Service.Name.DNSCase }}"
+  namespace: "{{ .Namespace }}"
+spec:
+  serviceName: "{{ .Service.Name.DNSCase }}"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: "{{ .Service.Name.DNSCase }}"
+  template:
+    metadata:
+      labels:
+        app: "{{ .Service.Name.DNSCase }}"
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: minio
+          image: {{ .Image }}
+          args:
+            - server
+            - /data
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: tcp-port
+              containerPort: 9000
+          envFrom:
+            - configMapRef:
+                name: cm-{{ .Service.Name.DNSCase }}
+{{- if not .Restricted }}
+            - secretRef:
+                name: secret-{{ .Service.Name.DNSCase }}
+{{- else if and .Deployment.Parameters.AccessKeyReference .Deployment.Parameters.SecretKeyReference }}
+          env:
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Deployment.Parameters.AccessKeyReference.Name }}
+                  key: {{ .Deployment.Parameters.AccessKeyReference.Key }}
+                  optional: false
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Deployment.Parameters.SecretKeyReference.Name }}
+                  key: {{ .Deployment.Parameters.SecretKeyReference.Key }}
+                  optional: false
+{{- end }}
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          startupProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: 9000
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            # readOnlyRootFilesystem=true still needs a writable scratch dir
+            # for MinIO's temporary upload parts outside the data volume.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi

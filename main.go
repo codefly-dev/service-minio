@@ -113,6 +113,26 @@ func (s *Service) CreateCredentialsConfiguration(ctx context.Context, conf *base
 	return outputConf, nil
 }
 
+// restrictedCredentialsConfiguration advertises the connection endpoint plus
+// value-free references to MinIO's root credentials. A restricted render never
+// receives or serializes the secret values themselves; consumers resolve the
+// access and secret keys from the externally managed Secret.
+func (s *Service) restrictedCredentialsConfiguration(instance *basev0.NetworkInstance) *basev0.Configuration {
+	return &basev0.Configuration{
+		Origin:         s.Base.Unique(),
+		RuntimeContext: resources.RuntimeContextFromInstance(instance),
+		Infos: []*basev0.ConfigurationInformation{
+			{Name: "minio",
+				ConfigurationValues: []*basev0.ConfigurationValue{
+					{Key: "endpoint", Value: instance.Address},
+					{Key: "access-key", Secret: true},
+					{Key: "secret-key", Secret: true},
+				},
+			},
+		},
+	}
+}
+
 func main() {
 	agents.Serve(agents.PluginRegistration{
 		Agent:   NewService(),
