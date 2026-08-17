@@ -1,3 +1,4 @@
 publisher: codefly.dev
+kind: service
 name: minio
 version: 0.0.11
