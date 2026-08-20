@@ -7,3 +7,5 @@ dist/
 
 # compiled plugin binary
 /service-minio
+# Built agent binary (rebuilt by `codefly agent build`).
+service-minio
